@@ -127,6 +127,74 @@
       update();
     };
 
+    // ----- 수정 모드 -----
+    // 수정 세션마다 finished 플래그를 둔다. Enter·Esc·blur 중 먼저 처리된 쪽만 유효하다.
+    let edit = null; // { id, finished, input, select }
+
+    function startEdit(id) {
+      if (!id) return;
+      if (edit && !edit.finished) finishEdit(true);
+      edit = { id, finished: false, input: null, select: null };
+      state.editingId = id;
+      update();
+      if (edit.input) {
+        edit.input.focus();
+        edit.input.select();
+      }
+    }
+
+    function finishEdit(save) {
+      if (!edit || edit.finished) return;
+      edit.finished = true;
+      state.editingId = null;
+      if (save && edit.input && edit.select) {
+        const next = Todos.updateTodo(state.todos, edit.id, {
+          text: edit.input.value,
+          category: edit.select.value,
+        });
+        if (next !== state.todos) {
+          commit(next);
+          return;
+        }
+      }
+      update();
+    }
+
+    // 그릴 때마다 새로 만들어지는 수정 영역에 현재 세션을 묶는다.
+    function bindEditArea() {
+      const area = part("edit-area");
+      if (!area || !edit) return;
+      const session = edit;
+      session.input = area.querySelector('[data-role="edit-input"]');
+      session.select = area.querySelector('[data-role="edit-category"]');
+      area.addEventListener("focusout", (event) => {
+        if (edit !== session) return;
+        if (event.relatedTarget && area.contains(event.relatedTarget)) return; // 수정 영역 안에서 이동
+        finishEdit(true);
+      });
+    }
+    afterRender.push(bindEditArea);
+
+    function onEditKey(event) {
+      if (isComposing(event)) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finishEdit(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finishEdit(false);
+      }
+    }
+    keyHandlers["edit-input"] = onEditKey;
+    keyHandlers["edit-category"] = onEditKey;
+
+    clickHandlers["edit"] = (target) => startEdit(idOf(target));
+
+    root.addEventListener("dblclick", (event) => {
+      const text = event.target.closest(".todo-text");
+      if (text) startEdit(idOf(text));
+    });
+
     // ----- 이벤트 연결 -----
     root.addEventListener("click", (event) => {
       const target = event.target.closest("[data-action]");

@@ -841,3 +841,120 @@ test("App: 저장소 접근이 막혀도 멈추지 않고 안내한다", () => {
     assertEqual(listTexts(ctx), ["그래도 추가"]);
   });
 });
+
+// ============================================================
+// 테스트 도구: 수정 모드
+// ============================================================
+function focusOut(element, relatedTarget) {
+  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: relatedTarget || null }));
+}
+
+function startEditing(ctx, id) {
+  ctx.q('[data-id="' + id + '"] [data-action="edit"]').click();
+  return { input: ctx.q('[data-role="edit-input"]'), select: ctx.q('[data-role="edit-category"]') };
+}
+
+function editFixture() {
+  return storageWith([makeTodo({ id: "a", text: "보고서", category: "work" })]);
+}
+
+// ============================================================
+// 테스트: App 수정 모드
+// ============================================================
+test("App 수정: ✎ 버튼으로 수정 모드에 들어간다", () => {
+  withApp({ storage: editFixture() }, (ctx) => {
+    const { input, select } = startEditing(ctx, "a");
+    assert(ctx.q('[data-id="a"]').classList.contains("editing"), "editing 클래스");
+    assertEqual([input.value, select.value], ["보고서", "work"]);
+  });
+});
+
+test("App 수정: ✎만으로 텍스트·카테고리를 바꾸고 Enter로 저장", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input, select } = startEditing(ctx, "a");
+    input.value = "  보고서 최종본 ";
+    select.value = "study";
+    pressKey(input, "Enter");
+    const saved = savedTodos(storage)[0];
+    assertEqual([saved.text, saved.category], ["보고서 최종본", "study"]);
+    assertEqual(ctx.q('[data-role="edit-input"]'), null, "수정 모드 종료");
+    assertEqual(listTexts(ctx), ["보고서 최종본"]);
+  });
+});
+
+test("App 수정: Enter 뒤에 blur가 와도 저장은 정확히 1회", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    const before = keyWrites(storage);
+    input.value = "새 이름";
+    pressKey(input, "Enter");
+    focusOut(input);
+    assertEqual(keyWrites(storage) - before, 1);
+  });
+});
+
+test("App 수정: Esc로 취소하면 뒤따르는 blur에도 저장하지 않는다", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    const before = keyWrites(storage);
+    input.value = "바꾸다 만 텍스트";
+    pressKey(input, "Escape");
+    focusOut(input);
+    assertEqual(keyWrites(storage) - before, 0);
+    assertEqual(listTexts(ctx), ["보고서"]);
+  });
+});
+
+test("App 수정: 한글 조합 중 Enter는 무시하고 수정 모드를 유지한다", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    const before = keyWrites(storage);
+    input.value = "수정하기";
+    pressKey(input, "Enter", { isComposing: true });
+    assert(ctx.q('[data-role="edit-input"]') === input, "수정 모드 유지");
+    assertEqual(keyWrites(storage) - before, 0);
+    pressKey(input, "Enter");
+    assertEqual(savedTodos(storage)[0].text, "수정하기");
+  });
+});
+
+test("App 수정: 카테고리 선택으로 포커스가 옮겨가면 저장하지 않고, 밖으로 나가면 저장", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input, select } = startEditing(ctx, "a");
+    const before = keyWrites(storage);
+    input.value = "카테고리도 변경";
+    focusOut(input, select);
+    assert(ctx.q('[data-role="edit-input"]') === input, "수정 모드 유지");
+    assertEqual(keyWrites(storage) - before, 0);
+    select.value = "personal";
+    focusOut(select, null);
+    assertEqual(keyWrites(storage) - before, 1);
+    const saved = savedTodos(storage)[0];
+    assertEqual([saved.text, saved.category], ["카테고리도 변경", "personal"]);
+  });
+});
+
+test("App 수정: 텍스트를 비우면 저장하지 않고 원래 값으로 돌아간다", () => {
+  const storage = editFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    const before = keyWrites(storage);
+    input.value = "   ";
+    pressKey(input, "Enter");
+    assertEqual(keyWrites(storage) - before, 0);
+    assertEqual(ctx.q('[data-role="edit-input"]'), null);
+    assertEqual(listTexts(ctx), ["보고서"]);
+  });
+});
+
+test("App 수정: 텍스트 더블클릭으로도 수정 모드에 들어간다(데스크톱 보조)", () => {
+  withApp({ storage: editFixture() }, (ctx) => {
+    ctx.q('[data-id="a"] .todo-text').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    assertEqual(ctx.q('[data-role="edit-input"]').value, "보고서");
+  });
+});
