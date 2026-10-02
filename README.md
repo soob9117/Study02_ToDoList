@@ -1,6 +1,6 @@
 # Study02_ToDoList
 
-> **상태: 개발 중** — 설계와 구현 계획까지 완료했고, 기능을 구현하고 있습니다.
+> **상태: 완성** — PRD의 모든 기능을 구현했고, 자동 테스트 103개와 수동 체크리스트 9개 항목을 모두 통과했습니다.
 
 하루 10~20개의 할 일을 날짜별로 관리하는 개인용 웹 앱입니다. 순수 HTML/CSS/JavaScript로 만들고, 브라우저의 localStorage에 저장하므로 새로고침해도 데이터가 남습니다. 서버, 빌드 도구, 외부 라이브러리가 필요 없습니다.
 
@@ -11,7 +11,7 @@
 - **날짜별 관리**: 날짜를 앞뒤로 이동하며 기록 확인, 미래 날짜에 미리 등록
 - **진행률**: 날짜별 전체 진행률과 카테고리별 완료 현황
 - **미완료 이월**: 오늘 이전의 미완료 항목을 버튼 하나로 오늘로 가져오기, 이월된 항목에 "N일째" 표시
-- **데이터 보관**: JSON 내보내기·가져오기, 덮어쓰기 전 자동 백업과 백업 복원
+- **데이터 보관**: JSON 내보내기·가져오기, 덮어쓰기 전 자동 백업과 백업 복원, 다른 탭에서 바뀐 내용 자동 반영
 - **입력 편의**: 한글 입력 중 Enter 오작동 방지, 모바일 화면(360px) 대응
 
 ## 실행 방법
@@ -26,12 +26,12 @@
 
 ## 테스트 방법
 
-`tests.html`을 더블클릭하면 모든 테스트가 실행되고, 맨 위에 `PASS 95/95 통과, 0 실패` 같은 요약이 표시됩니다.
+`tests.html`을 더블클릭하면 모든 테스트가 실행되고, 맨 위에 `PASS 103/103 통과, 0 실패` 같은 요약이 표시됩니다.
 
-명령줄에서 실행하려면 헤드리스 Chrome을 씁니다(Windows, Git Bash 기준. 경로는 클론한 위치에 맞게 바꾸세요).
+명령줄에서 실행하려면 헤드리스 Chrome을 씁니다(Windows, Git Bash에서 프로젝트 폴더를 기준으로 실행).
 
 ```bash
-"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run --user-data-dir="$LOCALAPPDATA/todo-test-chrome" --dump-dom "file:///D:/2601995%20Soob/study_02_ToDoList_B/tests.html" 2>/dev/null | grep -oE 'id="summary">[^<]*|class="fail">[^<]*'
+"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run --user-data-dir="$LOCALAPPDATA/todo-test-chrome" --dump-dom "file:///$(pwd -W | sed 's/ /%20/g')/tests.html" 2>/dev/null | grep -oE 'id="summary">[^<]*|class="fail">[^<]*'
 ```
 
 ## 폴더 구조
@@ -47,15 +47,18 @@ js/
   render.js         상태를 화면으로 그리기
   app.js            초기화와 이벤트 처리
   tests.js          테스트 코드
-docs/superpowers/
-  specs/            PRD·설계 스펙
-  plans/            구현 계획
+docs/
+  prompts.md        Claude Code 5단계 프롬프트
+  superpowers/
+    specs/          PRD·설계 스펙
+    plans/          구현 계획
 ```
 
 ## 문서
 
 - [PRD·설계 스펙](docs/superpowers/specs/2026-10-02-todo-app-prd.md): 요구사항, 데이터 구조, 화면 구성, 테스트 기준, 설계 결정 기록
 - [구현 계획](docs/superpowers/plans/2026-10-02-todo-app.md): Task별 TDD 구현 단계
+- [5단계 프롬프트](docs/prompts.md): 이 앱을 Claude Code로 처음부터 다시 만들 때 순서대로 보낼 프롬프트
 
 ## 기술 스택
 
