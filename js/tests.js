@@ -324,3 +324,76 @@ test("Storage.restoreBackup: 손상된 백업이면 아무것도 바꾸지 않�
   assertEqual(s.getItem("todoApp.v1"), "현재 원문");
   assertEqual(s.getItem("todoApp.v1.backup"), "{broken");
 });
+
+// ============================================================
+// 테스트: Todos CRUD
+// ============================================================
+test("Todos.createTodo: 공백을 제거하고 날짜 필드를 채운다", () => {
+  const todo = TodoApp.Todos.createTodo("  보고서 초안  ", "work", "2026-10-02", 1000);
+  assert(todo.id.startsWith("t_1000_"), "id 형식: " + todo.id);
+  assertEqual(
+    [todo.text, todo.category, todo.done, todo.date, todo.originalDate, todo.createdAt],
+    ["보고서 초안", "work", false, "2026-10-02", "2026-10-02", 1000]
+  );
+});
+
+test("Todos.createTodo: 잘못된 입력이면 null", () => {
+  const { createTodo } = TodoApp.Todos;
+  assertEqual(createTodo("", "work", "2026-10-02", 1), null);
+  assertEqual(createTodo("   ", "work", "2026-10-02", 1), null);
+  assertEqual(createTodo("가".repeat(101), "work", "2026-10-02", 1), null);
+  assertEqual(createTodo("할 일", "etc", "2026-10-02", 1), null);
+  assert(createTodo("가".repeat(100), "study", "2026-10-02", 1) !== null, "100자는 허용");
+});
+
+test("Todos.addTodo: 새 배열을 반환하고 원본은 그대로", () => {
+  const original = [makeTodo({ id: "a" })];
+  const next = TodoApp.Todos.addTodo(original, makeTodo({ id: "b" }));
+  assertEqual(next.map((t) => t.id), ["a", "b"]);
+  assertEqual(original.map((t) => t.id), ["a"]);
+});
+
+test("Todos.updateTodo: 텍스트(공백 제거)와 카테고리를 바꾼다", () => {
+  const original = [makeTodo({ id: "a", text: "이전", category: "work" })];
+  const next = TodoApp.Todos.updateTodo(original, "a", { text: "  이후 ", category: "personal" });
+  assertEqual([next[0].text, next[0].category], ["이후", "personal"]);
+  assertEqual([original[0].text, original[0].category], ["이전", "work"]);
+});
+
+test("Todos.updateTodo: 잘못된 값이면 같은 배열을 그대로 반환", () => {
+  const original = [makeTodo({ id: "a" })];
+  const { updateTodo } = TodoApp.Todos;
+  assert(updateTodo(original, "a", { text: "   " }) === original, "빈 텍스트");
+  assert(updateTodo(original, "a", { text: "가".repeat(101) }) === original, "101자");
+  assert(updateTodo(original, "a", { category: "etc" }) === original, "잘못된 카테고리");
+});
+
+test("Todos.deleteTodo: 해당 id만 지운다", () => {
+  const original = [makeTodo({ id: "a" }), makeTodo({ id: "b" })];
+  assertEqual(TodoApp.Todos.deleteTodo(original, "a").map((t) => t.id), ["b"]);
+  assertEqual(original.length, 2);
+});
+
+test("Todos.toggleTodo: 완료 상태를 뒤집는다", () => {
+  const original = [makeTodo({ id: "a", done: false })];
+  const once = TodoApp.Todos.toggleTodo(original, "a");
+  assertEqual(once[0].done, true);
+  assertEqual(TodoApp.Todos.toggleTodo(once, "a")[0].done, false);
+  assertEqual(original[0].done, false);
+});
+
+test("Todos.todosForDate: 해당 날짜 항목만", () => {
+  const todos = [makeTodo({ id: "a", date: "2026-10-01", originalDate: "2026-10-01" }), makeTodo({ id: "b" })];
+  assertEqual(TodoApp.Todos.todosForDate(todos, "2026-10-02").map((t) => t.id), ["b"]);
+});
+
+test("Todos.sortTodos: 미완료 먼저, 그 안에서 생성 순", () => {
+  const todos = [
+    makeTodo({ id: "d1", done: true, createdAt: 1 }),
+    makeTodo({ id: "u2", createdAt: 3 }),
+    makeTodo({ id: "u1", createdAt: 2 }),
+    makeTodo({ id: "d2", done: true, createdAt: 0 }),
+  ];
+  assertEqual(TodoApp.Todos.sortTodos(todos).map((t) => t.id), ["u1", "u2", "d2", "d1"]);
+  assertEqual(todos[0].id, "d1", "원본 순서 유지");
+});
