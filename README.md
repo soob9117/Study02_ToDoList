@@ -1,4 +1,4 @@
-# Study02_ToDoList
+# Study_02_ToDoList_B
 
 > **상태: 완성** — PRD의 모든 기능을 구현했고, 자동 테스트 103개와 수동 체크리스트 9개 항목을 모두 통과했습니다.
 
@@ -18,7 +18,7 @@
 
 1. 저장소를 내려받습니다.
    ```bash
-   git clone https://github.com/soob9117/Study02_ToDoList.git
+   git clone https://github.com/soob9117/Study_02_ToDoList_B.git
    ```
 2. 폴더 안의 `index.html`을 더블클릭해 브라우저로 엽니다.
 
