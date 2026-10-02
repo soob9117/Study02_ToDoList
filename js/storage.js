@@ -63,6 +63,99 @@
     return result.ok ? { ok: true, data: obj } : result;
   }
 
+  // ============================================================
+  // 저장소 읽기/쓰기
+  // ============================================================
+  function emptyData() {
+    return { version: VERSION, todos: [] };
+  }
+
+  function readRaw(storage) {
+    try {
+      return storage.getItem(KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function load(storage) {
+    let raw;
+    try {
+      raw = storage.getItem(KEY);
+    } catch (e) {
+      return { data: emptyData(), error: "unavailable" };
+    }
+    if (raw === null) return { data: emptyData(), error: null };
+    const result = parseAndValidate(raw);
+    if (result.ok) return { data: result.data, error: null };
+    writeBackup(storage, raw);
+    return { data: emptyData(), error: "corrupt" };
+  }
+
+  function save(storage, data) {
+    try {
+      storage.setItem(KEY, JSON.stringify(data));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ============================================================
+  // 백업
+  // ============================================================
+  function hasBackup(storage) {
+    try {
+      return storage.getItem(BACKUP_KEY) !== null;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function writeBackup(storage, raw) {
+    try {
+      storage.setItem(BACKUP_KEY, raw);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function readBackup(storage) {
+    let raw;
+    try {
+      raw = storage.getItem(BACKUP_KEY);
+    } catch (e) {
+      raw = null;
+    }
+    if (raw === null) return { ok: false, error: "백업이 없습니다." };
+    const result = parseAndValidate(raw);
+    if (!result.ok) return { ok: false, error: "백업 데이터가 손상되어 복원할 수 없습니다." };
+    return { ok: true, data: result.data, raw };
+  }
+
+  // 가져오기용: 현재 원문을 백업에 보관한 뒤 새 데이터로 덮어쓴다.
+  function replaceData(storage, data) {
+    const currentRaw = readRaw(storage);
+    if (currentRaw !== null && !writeBackup(storage, currentRaw)) return false;
+    return save(storage, data);
+  }
+
+  // 백업 복원: 본 데이터와 백업을 맞바꿔 복원도 한 번 되돌릴 수 있게 한다.
+  function restoreBackup(storage) {
+    const backup = readBackup(storage);
+    if (!backup.ok) return backup;
+    const currentRaw = readRaw(storage);
+    try {
+      storage.setItem(KEY, backup.raw);
+      if (currentRaw === null) storage.removeItem(BACKUP_KEY);
+      else storage.setItem(BACKUP_KEY, currentRaw);
+    } catch (e) {
+      return { ok: false, error: "저장에 실패했습니다." };
+    }
+    return { ok: true, data: backup.data };
+  }
+
   window.TodoApp.Storage = {
     KEY,
     BACKUP_KEY,
@@ -71,5 +164,12 @@
     MAX_TEXT_LENGTH,
     validateData,
     parseAndValidate,
+    load,
+    save,
+    hasBackup,
+    writeBackup,
+    readBackup,
+    replaceData,
+    restoreBackup,
   };
 })();

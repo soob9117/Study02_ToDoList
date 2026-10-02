@@ -204,3 +204,123 @@ test("Storage.parseAndValidate: 정상 JSON이면 data를 돌려준다", () => {
   const result = TodoApp.Storage.parseAndValidate(JSON.stringify(data));
   assertEqual(result, { ok: true, data });
 });
+
+// ============================================================
+// 테스트 도구: 가짜 저장소
+// ============================================================
+function fakeStorage(initial) {
+  const map = new Map(Object.entries(initial || {}));
+  const storage = {
+    writes: [],
+    failGet: false,
+    failSet: false,
+    getItem(key) {
+      if (storage.failGet) throw new Error("getItem 차단");
+      return map.has(key) ? map.get(key) : null;
+    },
+    setItem(key, value) {
+      if (storage.failSet) throw new Error("QuotaExceededError");
+      storage.writes.push(key);
+      map.set(key, String(value));
+    },
+    removeItem(key) {
+      map.delete(key);
+    },
+  };
+  return storage;
+}
+
+function storageWith(todos, backupTodos) {
+  const initial = { "todoApp.v1": JSON.stringify({ version: 1, todos }) };
+  if (backupTodos) {
+    initial["todoApp.v1.backup"] = JSON.stringify({ version: 1, todos: backupTodos });
+  }
+  return fakeStorage(initial);
+}
+
+// ============================================================
+// 테스트: Storage 읽기/쓰기·백업
+// ============================================================
+test("Storage.load: 빈 저장소면 빈 데이터, 오류 없음", () => {
+  assertEqual(TodoApp.Storage.load(fakeStorage()), { data: { version: 1, todos: [] }, error: null });
+});
+
+test("Storage.save → load 왕복 결과가 같다", () => {
+  const s = fakeStorage();
+  const data = { version: 1, todos: [makeTodo({ id: "a" }), makeTodo({ id: "b", done: true })] };
+  assertEqual(TodoApp.Storage.save(s, data), true);
+  assertEqual(TodoApp.Storage.load(s), { data, error: null });
+});
+
+test("Storage.load: 깨진 JSON이면 원문을 백업에 보관하고 빈 데이터", () => {
+  const s = fakeStorage({ "todoApp.v1": "{broken" });
+  assertEqual(TodoApp.Storage.load(s), { data: { version: 1, todos: [] }, error: "corrupt" });
+  assertEqual(s.getItem("todoApp.v1.backup"), "{broken");
+});
+
+test("Storage.load: 형식이 틀린 JSON도 corrupt로 처리", () => {
+  const raw = JSON.stringify({ version: 2, todos: [] });
+  const s = fakeStorage({ "todoApp.v1": raw });
+  assertEqual(TodoApp.Storage.load(s).error, "corrupt");
+  assertEqual(s.getItem("todoApp.v1.backup"), raw);
+});
+
+test("Storage.load: 저장소 접근이 막히면 unavailable", () => {
+  const s = fakeStorage();
+  s.failGet = true;
+  assertEqual(TodoApp.Storage.load(s), { data: { version: 1, todos: [] }, error: "unavailable" });
+  assertEqual(TodoApp.Storage.hasBackup(s), false);
+});
+
+test("Storage.save: setItem이 예외를 던지면 false", () => {
+  const s = fakeStorage();
+  s.failSet = true;
+  assertEqual(TodoApp.Storage.save(s, { version: 1, todos: [] }), false);
+});
+
+test("Storage.hasBackup: 백업 키 유무", () => {
+  assertEqual(TodoApp.Storage.hasBackup(fakeStorage()), false);
+  assertEqual(TodoApp.Storage.hasBackup(fakeStorage({ "todoApp.v1.backup": "x" })), true);
+});
+
+test("Storage.replaceData: 현재 원문을 백업에 넣고 새 데이터로 덮어쓴다", () => {
+  const s = storageWith([makeTodo({ id: "old" })]);
+  const oldRaw = s.getItem("todoApp.v1");
+  const next = { version: 1, todos: [makeTodo({ id: "new" })] };
+  assertEqual(TodoApp.Storage.replaceData(s, next), true);
+  assertEqual(s.getItem("todoApp.v1.backup"), oldRaw);
+  assertEqual(JSON.parse(s.getItem("todoApp.v1")), next);
+});
+
+test("Storage.readBackup: 없음·손상·정상", () => {
+  const { readBackup } = TodoApp.Storage;
+  assertEqual(readBackup(fakeStorage()), { ok: false, error: "백업이 없습니다." });
+  assertEqual(readBackup(fakeStorage({ "todoApp.v1.backup": "{broken" })), {
+    ok: false,
+    error: "백업 데이터가 손상되어 복원할 수 없습니다.",
+  });
+  const result = readBackup(storageWith([], [makeTodo({ id: "b1" })]));
+  assertEqual(result.ok, true);
+  assertEqual(result.data.todos.map((t) => t.id), ["b1"]);
+});
+
+test("Storage.restoreBackup: 본 데이터와 백업을 맞바꾼다", () => {
+  const s = storageWith([makeTodo({ id: "cur" })], [makeTodo({ id: "b1" }), makeTodo({ id: "b2" })]);
+  const currentRaw = s.getItem("todoApp.v1");
+  const backupRaw = s.getItem("todoApp.v1.backup");
+  const result = TodoApp.Storage.restoreBackup(s);
+  assertEqual(result.ok, true);
+  assertEqual(result.data.todos.map((t) => t.id), ["b1", "b2"]);
+  assertEqual(s.getItem("todoApp.v1"), backupRaw);
+  assertEqual(s.getItem("todoApp.v1.backup"), currentRaw);
+});
+
+test("Storage.restoreBackup: 손상된 백업이면 아무것도 바꾸지 않는다", () => {
+  const s = fakeStorage({ "todoApp.v1": "현재 원문", "todoApp.v1.backup": "{broken" });
+  assertEqual(TodoApp.Storage.restoreBackup(s), {
+    ok: false,
+    error: "백업 데이터가 손상되어 복원할 수 없습니다.",
+  });
+  assertEqual(s.getItem("todoApp.v1"), "현재 원문");
+  assertEqual(s.getItem("todoApp.v1.backup"), "{broken");
+});
