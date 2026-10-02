@@ -632,3 +632,212 @@ test("Render: 사용자 텍스트는 HTML로 해석하지 않는다", () => {
     assertEqual(ctx.q('[data-id="x"] img'), null);
   });
 });
+
+// ============================================================
+// 테스트 도구: 앱 띄우기·이벤트
+// ============================================================
+function withApp(options, fn) {
+  options = options || {};
+  const root = document.createElement("div");
+  document.getElementById("test-root").appendChild(root);
+  const storage = options.storage || fakeStorage();
+  const dialogs = { confirms: [], alerts: [], downloads: [], answer: options.answer !== undefined ? options.answer : true };
+  let todayValue = options.today || "2026-10-02";
+  let clock = 5000;
+  const app = TodoApp.App.init({
+    root,
+    storage,
+    today: () => todayValue,
+    now: () => ++clock,
+    confirm: (message) => {
+      dialogs.confirms.push(message);
+      return dialogs.answer;
+    },
+    alert: (message) => dialogs.alerts.push(message),
+    download: (name, text) => dialogs.downloads.push({ name, text }),
+  });
+  const ctx = {
+    root,
+    storage,
+    app,
+    dialogs,
+    q: (selector) => root.querySelector(selector),
+    qa: (selector) => Array.from(root.querySelectorAll(selector)),
+    setToday: (value) => (todayValue = value),
+  };
+  try {
+    fn(ctx);
+  } finally {
+    app.destroy();
+    root.remove();
+  }
+}
+
+function pressKey(element, key, extra) {
+  element.dispatchEvent(
+    new KeyboardEvent("keydown", Object.assign({ key, bubbles: true, cancelable: true }, extra || {}))
+  );
+}
+
+function addViaUi(ctx, text, category) {
+  if (category) ctx.q('[data-role="add-category"]').value = category;
+  const input = ctx.q('[data-role="add-input"]');
+  input.value = text;
+  pressKey(input, "Enter");
+}
+
+function savedTodos(storage) {
+  return JSON.parse(storage.getItem("todoApp.v1")).todos;
+}
+
+function keyWrites(storage) {
+  return storage.writes.filter((key) => key === "todoApp.v1").length;
+}
+
+// ============================================================
+// 테스트: App 기본 동작
+// ============================================================
+test("App: 오늘 날짜로 시작하고 저장된 할 일을 보여준다", () => {
+  withApp({ storage: storageWith([makeTodo({ text: "저장된 일" })]) }, (ctx) => {
+    assertEqual(textOf(ctx, "date-label"), "2026-10-02 (금) · 오늘");
+    assertEqual(listTexts(ctx), ["저장된 일"]);
+  });
+});
+
+test("App: Enter로 추가하면 저장되고 입력란이 비며, 다시 열어도 유지된다", () => {
+  const storage = fakeStorage();
+  withApp({ storage }, (ctx) => {
+    addViaUi(ctx, "  보고서 초안  ");
+    assertEqual(listTexts(ctx), ["보고서 초안"]);
+    assertEqual(ctx.q('[data-role="add-input"]').value, "");
+    const saved = savedTodos(storage);
+    assertEqual([saved[0].text, saved[0].date, saved[0].originalDate], ["보고서 초안", "2026-10-02", "2026-10-02"]);
+  });
+  withApp({ storage }, (ctx) => assertEqual(listTexts(ctx), ["보고서 초안"]));
+});
+
+test("App: [추가] 버튼으로도 추가된다", () => {
+  withApp({}, (ctx) => {
+    ctx.q('[data-role="add-input"]').value = "버튼으로 추가";
+    ctx.q('[data-action="add"]').click();
+    assertEqual(listTexts(ctx), ["버튼으로 추가"]);
+  });
+});
+
+test("App: 빈 값·공백만 있으면 추가하지 않는다", () => {
+  withApp({}, (ctx) => {
+    addViaUi(ctx, "");
+    addViaUi(ctx, "    ");
+    assertEqual(listTexts(ctx), []);
+    assertEqual(keyWrites(ctx.storage), 0);
+  });
+});
+
+test("App: 한글 조합 중 Enter는 무시하고 조합이 끝난 Enter만 추가한다", () => {
+  withApp({}, (ctx) => {
+    const input = ctx.q('[data-role="add-input"]');
+    input.value = "공부하기";
+    pressKey(input, "Enter", { isComposing: true });
+    assertEqual(listTexts(ctx), []);
+    pressKey(input, "Enter");
+    assertEqual(listTexts(ctx), ["공부하기"]);
+  });
+});
+
+test("App: 고른 카테고리로 추가되고 선택은 유지된다", () => {
+  withApp({}, (ctx) => {
+    addViaUi(ctx, "단어 외우기", "study");
+    assertEqual(savedTodos(ctx.storage)[0].category, "study");
+    assertEqual(ctx.q('[data-role="add-category"]').value, "study");
+  });
+});
+
+test("App: 체크박스로 완료를 토글하고 저장한다", () => {
+  const storage = storageWith([makeTodo({ id: "a", text: "운동" })]);
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-id="a"] [data-action="toggle"]').click();
+    assertEqual(savedTodos(storage)[0].done, true);
+    assert(ctx.q('[data-id="a"]').classList.contains("done"), "done 클래스");
+  });
+});
+
+test("App: 삭제는 확인 후 진행한다", () => {
+  const storage = storageWith([makeTodo({ id: "a", text: "운동" })]);
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-id="a"] [data-action="delete"]').click();
+    assertEqual(ctx.dialogs.confirms, ["'운동'을(를) 삭제할까요?"]);
+    assertEqual(listTexts(ctx), []);
+    assertEqual(savedTodos(storage), []);
+  });
+});
+
+test("App: 삭제 확인을 거부하면 그대로 둔다", () => {
+  const storage = storageWith([makeTodo({ id: "a", text: "운동" })]);
+  withApp({ storage, answer: false }, (ctx) => {
+    ctx.q('[data-id="a"] [data-action="delete"]').click();
+    assertEqual(listTexts(ctx), ["운동"]);
+    assertEqual(keyWrites(storage), 0);
+  });
+});
+
+test("App: 날짜 이동과 다른 날짜에 추가", () => {
+  withApp({}, (ctx) => {
+    ctx.q('[data-action="prev-day"]').click();
+    assertEqual(textOf(ctx, "date-label"), "2026-10-01 (목)");
+    addViaUi(ctx, "어제 일");
+    const saved = savedTodos(ctx.storage)[0];
+    assertEqual([saved.date, saved.originalDate], ["2026-10-01", "2026-10-01"]);
+    ctx.q('[data-action="next-day"]').click();
+    ctx.q('[data-action="next-day"]').click();
+    assertEqual(textOf(ctx, "date-label"), "2026-10-03 (토)");
+    assertEqual(listTexts(ctx), []);
+    ctx.q('[data-action="go-today"]').click();
+    assertEqual(textOf(ctx, "date-label"), "2026-10-02 (금) · 오늘");
+  });
+});
+
+test("App: 필터 버튼으로 목록을 거른다", () => {
+  const storage = storageWith([
+    makeTodo({ text: "업무 일", category: "work" }),
+    makeTodo({ text: "개인 일", category: "personal" }),
+  ]);
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-filter="personal"]').click();
+    assertEqual(listTexts(ctx), ["개인 일"]);
+    assertEqual(ctx.q('[data-filter="personal"]').getAttribute("aria-pressed"), "true");
+    ctx.q('[data-filter="all"]').click();
+    assertEqual(listTexts(ctx), ["업무 일", "개인 일"]);
+  });
+});
+
+test("App: 저장 데이터가 깨져 있으면 안내하고 백업 버튼을 보여준다", () => {
+  const storage = fakeStorage({ "todoApp.v1": "{broken" });
+  withApp({ storage }, (ctx) => {
+    assertEqual(textOf(ctx, "messages"), "저장된 데이터를 읽을 수 없어 백업으로 보관하고 새로 시작합니다.");
+    assertEqual(ctx.q('[data-role="restore-backup"]').hidden, false);
+    assertEqual(storage.getItem("todoApp.v1.backup"), "{broken");
+    assertEqual(listTexts(ctx), []);
+  });
+});
+
+test("App: 저장 실패 시 경고하고 화면은 유지, 다음 저장 성공 시 경고 해제", () => {
+  withApp({}, (ctx) => {
+    ctx.storage.failSet = true;
+    addViaUi(ctx, "첫 번째");
+    assertEqual(textOf(ctx, "messages"), "저장에 실패했습니다. 새로고침하면 변경 내용이 사라질 수 있습니다.");
+    assertEqual(listTexts(ctx), ["첫 번째"]);
+    ctx.storage.failSet = false;
+    addViaUi(ctx, "두 번째");
+    assertEqual(ctx.q('[data-role="messages"]').hidden, true);
+  });
+});
+
+test("App: 저장소 접근이 막혀도 멈추지 않고 안내한다", () => {
+  const storage = fakeStorage();
+  storage.failGet = true;
+  withApp({ storage }, (ctx) => {
+    assertEqual(textOf(ctx, "messages"), "저장소를 사용할 수 없어 데이터가 저장되지 않습니다.");
+    addViaUi(ctx, "그래도 추가");
+    assertEqual(listTexts(ctx), ["그래도 추가"]);
+  });
+});
