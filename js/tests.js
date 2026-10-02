@@ -1117,3 +1117,126 @@ test("App: 내보내기 → 전부 삭제 → 가져오기로 원래대로 돌�
     assertEqual(savedTodos(storage), JSON.parse(exported).todos);
   });
 });
+
+// ============================================================
+// 테스트: 최종 리뷰 수정
+// ============================================================
+function twoFixture() {
+  return storageWith([
+    makeTodo({ id: "a", text: "첫째", category: "work" }),
+    makeTodo({ id: "b", text: "둘째", category: "personal" }),
+  ]);
+}
+
+function mouseDown(element) {
+  const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  element.dispatchEvent(event);
+  return event;
+}
+
+test("최종 F1: 수정 중 다른 항목 ✎의 mousedown은 막히고, 클릭 한 번에 저장 후 그 항목 수정", () => {
+  const storage = twoFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    input.value = "첫째 수정";
+    const before = keyWrites(storage);
+    const button = ctx.q('[data-id="b"] [data-action="edit"]');
+    assertEqual(mouseDown(button).defaultPrevented, true, "mousedown 막힘");
+    assertEqual(keyWrites(storage) - before, 0);
+    assert(ctx.q('[data-id="a"]').classList.contains("editing"), "A 수정 유지");
+    button.click();
+    assertEqual(keyWrites(storage) - before, 1);
+    assertEqual(savedTodos(storage)[0].text, "첫째 수정");
+    assertEqual(ctx.q('[data-role="edit-input"]').value, "둘째");
+    assert(ctx.q('[data-id="b"]').classList.contains("editing"), "B 수정 모드");
+  });
+});
+
+test("최종 F1: 수정 중 다른 항목 체크박스 한 번 클릭으로 저장 + 완료 토글", () => {
+  const storage = twoFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    input.value = "첫째 수정";
+    const box = ctx.q('[data-id="b"] [data-action="toggle"]');
+    assertEqual(mouseDown(box).defaultPrevented, true);
+    box.click();
+    const saved = savedTodos(storage);
+    assertEqual(saved[0].text, "첫째 수정");
+    assertEqual(saved[1].done, true);
+  });
+});
+
+test("최종 F1: 수정 중 다른 항목 🗑 한 번 클릭으로 저장 + 삭제", () => {
+  const storage = twoFixture();
+  withApp({ storage, answer: true }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    input.value = "첫째 수정";
+    const button = ctx.q('[data-id="b"] [data-action="delete"]');
+    assertEqual(mouseDown(button).defaultPrevented, true);
+    button.click();
+    const saved = savedTodos(storage);
+    assertEqual(saved.map((t) => t.text), ["첫째 수정"]);
+  });
+});
+
+test("최종 F1: 액션이 아닌 곳이나 수정 영역 안의 mousedown은 막지 않는다", () => {
+  withApp({ storage: twoFixture() }, (ctx) => {
+    const { input, select } = startEditing(ctx, "a");
+    assertEqual(mouseDown(ctx.q('[data-id="b"] .todo-text')).defaultPrevented, false);
+    assertEqual(mouseDown(input).defaultPrevented, false);
+    assertEqual(mouseDown(select).defaultPrevented, false);
+  });
+});
+
+function externalChange(ctx, todos) {
+  ctx.storage.setItem("todoApp.v1", JSON.stringify({ version: 1, todos }));
+  window.dispatchEvent(new StorageEvent("storage", { key: "todoApp.v1" }));
+}
+
+test("최종 F2: 다른 탭에서 본 데이터가 바뀌면 다시 불러오고 안내한다(저장 없음)", () => {
+  const storage = twoFixture();
+  withApp({ storage }, (ctx) => {
+    const before = storage.writes.length;
+    externalChange(ctx, [makeTodo({ id: "z", text: "다른 탭" })]);
+    const after = storage.writes.length;
+    assertEqual(listTexts(ctx), ["다른 탭"]);
+    assertEqual(textOf(ctx, "messages"), "다른 탭에서 변경된 내용을 불러왔습니다.");
+    assertEqual(after - before, 1, "테스트가 직접 쓴 1회뿐");
+    assertEqual(storage.writes.length, after);
+  });
+});
+
+test("최종 F2: 수정 중 외부 변경이 오면 수정을 닫고 입력한 텍스트를 저장하지 않는다", () => {
+  const storage = twoFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    input.value = "저장되면 안 됨";
+    externalChange(ctx, [makeTodo({ id: "z", text: "다른 탭" })]);
+    const after = storage.writes.length;
+    assertEqual(ctx.q('[data-role="edit-input"]'), null);
+    focusOut(input);
+    assertEqual(storage.writes.length, after);
+    assertEqual(savedTodos(storage).map((t) => t.text), ["다른 탭"]);
+  });
+});
+
+test("최종 F2: 관련 없는 키의 storage 이벤트는 무시한다", () => {
+  withApp({ storage: twoFixture() }, (ctx) => {
+    window.dispatchEvent(new StorageEvent("storage", { key: "other.key" }));
+    assertEqual(listTexts(ctx), ["첫째", "둘째"]);
+    assertEqual(textOf(ctx, "messages"), "");
+  });
+});
+
+test("최종 F4: 가져오기로 데이터가 바뀌면 열려 있던 수정 세션은 저장하지 않는다", () => {
+  const storage = twoFixture();
+  withApp({ storage }, (ctx) => {
+    const { input } = startEditing(ctx, "a");
+    input.value = "저장되면 안 됨";
+    ctx.app.importText(JSON.stringify({ version: 1, todos: [makeTodo({ id: "n", text: "가져옴" })] }));
+    const after = storage.writes.length;
+    focusOut(input);
+    assertEqual(storage.writes.length, after);
+    assertEqual(savedTodos(storage).map((t) => t.text), ["가져옴"]);
+  });
+});

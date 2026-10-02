@@ -119,6 +119,7 @@ select:focus-visible {
   margin: 0;
   font-size: 1.25rem;
   text-align: center;
+  word-break: keep-all;
 }
 
 /* ============================================================

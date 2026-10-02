@@ -118,7 +118,7 @@
     };
     clickHandlers["add"] = addFromInput;
 
-    changeHandlers["toggle"] = (target) => commit(Todos.toggleTodo(state.todos, idOf(target)));
+    clickHandlers["toggle"] = (target) => commit(Todos.toggleTodo(state.todos, idOf(target)));
 
     clickHandlers["delete"] = (target) => {
       const todo = state.todos.find((t) => t.id === idOf(target));
@@ -191,13 +191,13 @@
 
     function onEditKey(event) {
       if (isComposing(event)) return;
-      if (event.key === "Enter") {
-        event.preventDefault();
-        finishEdit(true);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        finishEdit(false);
-      }
+      if (event.key !== "Enter" && event.key !== "Escape") return;
+      event.preventDefault();
+      const id = edit && edit.id;
+      finishEdit(event.key === "Enter");
+      // 키보드로 끝낸 경우에만 해당 항목의 ✎ 버튼으로 포커스를 돌려준다.
+      const button = id && root.querySelector(`[data-id="${id}"] [data-action="edit"]`);
+      if (button) button.focus();
     }
     keyHandlers["edit-input"] = onEditKey;
     keyHandlers["edit-category"] = onEditKey;
@@ -235,6 +235,7 @@
 
     // ----- 내보내기·가져오기·백업 복원 -----
     function applyData(data) {
+      if (edit) edit.finished = true; // 열려 있던 수정 세션은 저장하지 않고 버린다
       state.todos = data.todos;
       state.editingId = null;
       state.notice = null;
@@ -294,10 +295,42 @@
       applyData(result.data);
     };
 
+    // ----- 다른 탭 변경 감지 -----
+    function onStorage(event) {
+      if (event.key === Storage.BACKUP_KEY) {
+        state.hasBackup = Storage.hasBackup(storage);
+        update();
+        return;
+      }
+      if (event.key !== Storage.KEY) return;
+      if (edit) edit.finished = true; // 저장하지 않고 수정 세션을 버린다
+      state.todos = Storage.load(storage).data.todos;
+      state.editingId = null;
+      state.hasBackup = Storage.hasBackup(storage);
+      state.notice = "다른 탭에서 변경된 내용을 불러왔습니다.";
+      update();
+    }
+    window.addEventListener("storage", onStorage);
+    cleanups.push(() => window.removeEventListener("storage", onStorage));
+
     // ----- 이벤트 연결 -----
+    function editActive() {
+      return !!(edit && !edit.finished);
+    }
+
+    // 수정 중 다른 버튼을 누르면 포커스가 빠져나가 다시 그려지며 클릭이 사라진다. 포커스를 유지시킨다.
+    root.addEventListener("mousedown", (event) => {
+      if (!editActive()) return;
+      const target = event.target.closest("[data-action]");
+      if (!target || !root.contains(target)) return;
+      if (target.closest('[data-role="edit-area"]')) return;
+      event.preventDefault();
+    });
+
     root.addEventListener("click", (event) => {
       const target = event.target.closest("[data-action]");
       if (!target || !root.contains(target)) return;
+      if (editActive() && !target.closest('[data-role="edit-area"]')) finishEdit(true);
       const handler = clickHandlers[target.dataset.action];
       if (handler) handler(target, event);
     });
