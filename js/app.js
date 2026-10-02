@@ -19,7 +19,21 @@
     now: () => Date.now(),
     confirm: (message) => window.confirm(message),
     alert: (message) => window.alert(message),
+    download: (filename, text) => downloadFile(filename, text),
   };
+
+  // file://에서도 동작하는 Blob 다운로드
+  function downloadFile(filename, text) {
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 
   // ============================================================
   // 앱 초기화
@@ -218,6 +232,67 @@
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", refreshToday);
     });
+
+    // ----- 내보내기·가져오기·백업 복원 -----
+    function applyData(data) {
+      state.todos = data.todos;
+      state.editingId = null;
+      state.notice = null;
+      state.hasBackup = Storage.hasBackup(storage);
+      update();
+    }
+
+    clickHandlers["export"] = () => {
+      const json = JSON.stringify({ version: Storage.VERSION, todos: state.todos }, null, 2);
+      opts.download(`todo-backup-${opts.today()}.json`, json);
+    };
+
+    function importText(text) {
+      const result = Storage.parseAndValidate(text);
+      if (!result.ok) {
+        opts.alert("가져올 수 없습니다.\n" + result.error);
+        return;
+      }
+      const message = `현재 할 일 ${state.todos.length}개가 가져온 ${result.data.todos.length}개로 대체됩니다. 계속할까요?`;
+      if (!opts.confirm(message)) return;
+      state.saveFailed = !Storage.replaceData(storage, result.data);
+      applyData(result.data);
+    }
+    api.importText = importText;
+
+    clickHandlers["import"] = () => part("import-file").click();
+
+    changeHandlers["import-file"] = (input) => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        input.value = ""; // 같은 파일을 다시 고를 수 있게
+        importText(String(reader.result));
+      };
+      reader.onerror = () => {
+        input.value = "";
+        opts.alert("파일을 읽을 수 없습니다.");
+      };
+      reader.readAsText(file);
+    };
+
+    clickHandlers["restore-backup"] = () => {
+      const backup = Storage.readBackup(storage);
+      if (!backup.ok) {
+        opts.alert(backup.error);
+        return;
+      }
+      const message = `현재 할 일 ${state.todos.length}개를 백업의 ${backup.data.todos.length}개로 되돌립니다. 계속할까요?`;
+      if (!opts.confirm(message)) return;
+      const result = Storage.restoreBackup(storage);
+      if (!result.ok) {
+        opts.alert(result.error);
+        return;
+      }
+      state.saveFailed = false;
+      applyData(result.data);
+    };
 
     // ----- 이벤트 연결 -----
     root.addEventListener("click", (event) => {

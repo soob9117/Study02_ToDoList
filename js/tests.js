@@ -1005,3 +1005,115 @@ test("App 자정: 다른 날짜를 보던 중이면 그 날짜를 유지", () =>
     assertEqual(textOf(ctx, "date-label"), "2026-10-03 (토) · 오늘");
   });
 });
+
+// ============================================================
+// 테스트: App 내보내기·가져오기·백업 복원
+// ============================================================
+test("App 내보내기: 저장 형식 그대로 todo-backup-오늘.json", () => {
+  const todos = [makeTodo({ id: "a" }), makeTodo({ id: "b", done: true })];
+  withApp({ storage: storageWith(todos) }, (ctx) => {
+    ctx.q('[data-action="export"]').click();
+    assertEqual(ctx.dialogs.downloads.length, 1);
+    assertEqual(ctx.dialogs.downloads[0].name, "todo-backup-2026-10-02.json");
+    assertEqual(JSON.parse(ctx.dialogs.downloads[0].text), { version: 1, todos });
+  });
+});
+
+test("App 가져오기: 확인 후 기존 데이터를 백업하고 교체", () => {
+  const storage = storageWith([makeTodo({ id: "old", text: "기존" })]);
+  const oldRaw = storage.getItem("todoApp.v1");
+  const incoming = { version: 1, todos: [makeTodo({ id: "n1", text: "가져온 1" }), makeTodo({ id: "n2", text: "가져온 2" })] };
+  withApp({ storage }, (ctx) => {
+    ctx.app.importText(JSON.stringify(incoming));
+    assertEqual(ctx.dialogs.confirms, ["현재 할 일 1개가 가져온 2개로 대체됩니다. 계속할까요?"]);
+    assertEqual(listTexts(ctx), ["가져온 1", "가져온 2"]);
+    assertEqual(savedTodos(storage).map((t) => t.id), ["n1", "n2"]);
+    assertEqual(storage.getItem("todoApp.v1.backup"), oldRaw);
+    assertEqual(ctx.q('[data-role="restore-backup"]').hidden, false);
+  });
+});
+
+test("App 가져오기: 형식 오류면 첫 오류를 알리고 아무것도 바꾸지 않는다", () => {
+  const storage = storageWith([makeTodo({ id: "old", text: "기존" })]);
+  const oldRaw = storage.getItem("todoApp.v1");
+  const incoming = { version: 1, todos: [makeTodo(), makeTodo({ category: "etc" })] };
+  withApp({ storage }, (ctx) => {
+    ctx.app.importText(JSON.stringify(incoming));
+    assertEqual(ctx.dialogs.alerts, ["가져올 수 없습니다.\n2번째 항목: category 값이 잘못되었습니다."]);
+    assertEqual(ctx.dialogs.confirms, []);
+    assertEqual(storage.getItem("todoApp.v1"), oldRaw);
+    assertEqual(storage.getItem("todoApp.v1.backup"), null);
+    assertEqual(listTexts(ctx), ["기존"]);
+  });
+});
+
+test("App 가져오기: JSON이 아니면 알린다", () => {
+  withApp({}, (ctx) => {
+    ctx.app.importText("not json");
+    assertEqual(ctx.dialogs.alerts, ["가져올 수 없습니다.\nJSON 형식이 아닙니다."]);
+  });
+});
+
+test("App 가져오기: 확인을 거부하면 그대로 둔다", () => {
+  const storage = storageWith([makeTodo({ id: "old", text: "기존" })]);
+  const oldRaw = storage.getItem("todoApp.v1");
+  withApp({ storage, answer: false }, (ctx) => {
+    ctx.app.importText(JSON.stringify({ version: 1, todos: [] }));
+    assertEqual(storage.getItem("todoApp.v1"), oldRaw);
+    assertEqual(storage.getItem("todoApp.v1.backup"), null);
+    assertEqual(listTexts(ctx), ["기존"]);
+  });
+});
+
+test("App 백업 복원: 확인 후 현재와 백업을 맞바꾼다", () => {
+  const storage = storageWith(
+    [makeTodo({ id: "cur", text: "현재" })],
+    [makeTodo({ id: "b1", text: "백업 1" }), makeTodo({ id: "b2", text: "백업 2" })]
+  );
+  const currentRaw = storage.getItem("todoApp.v1");
+  const backupRaw = storage.getItem("todoApp.v1.backup");
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-action="restore-backup"]').click();
+    assertEqual(ctx.dialogs.confirms, ["현재 할 일 1개를 백업의 2개로 되돌립니다. 계속할까요?"]);
+    assertEqual(listTexts(ctx), ["백업 1", "백업 2"]);
+    assertEqual(storage.getItem("todoApp.v1"), backupRaw);
+    assertEqual(storage.getItem("todoApp.v1.backup"), currentRaw);
+  });
+});
+
+test("App 백업 복원: 확인을 거부하면 둘 다 그대로", () => {
+  const storage = storageWith([makeTodo({ id: "cur", text: "현재" })], [makeTodo({ id: "b1" })]);
+  const currentRaw = storage.getItem("todoApp.v1");
+  const backupRaw = storage.getItem("todoApp.v1.backup");
+  withApp({ storage, answer: false }, (ctx) => {
+    ctx.q('[data-action="restore-backup"]').click();
+    assertEqual(storage.getItem("todoApp.v1"), currentRaw);
+    assertEqual(storage.getItem("todoApp.v1.backup"), backupRaw);
+    assertEqual(listTexts(ctx), ["현재"]);
+  });
+});
+
+test("App 백업 복원: 손상된 백업이면 알리고 아무것도 바꾸지 않는다", () => {
+  const currentRaw = JSON.stringify({ version: 1, todos: [makeTodo({ id: "cur", text: "현재" })] });
+  const storage = fakeStorage({ "todoApp.v1": currentRaw, "todoApp.v1.backup": "{broken" });
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-action="restore-backup"]').click();
+    assertEqual(ctx.dialogs.alerts, ["백업 데이터가 손상되어 복원할 수 없습니다."]);
+    assertEqual(ctx.dialogs.confirms, []);
+    assertEqual(storage.getItem("todoApp.v1"), currentRaw);
+    assertEqual(listTexts(ctx), ["현재"]);
+  });
+});
+
+test("App: 내보내기 → 전부 삭제 → 가져오기로 원래대로 돌아온다", () => {
+  const storage = storageWith([makeTodo({ id: "a", text: "하나" }), makeTodo({ id: "b", text: "둘", done: true })]);
+  withApp({ storage }, (ctx) => {
+    ctx.q('[data-action="export"]').click();
+    const exported = ctx.dialogs.downloads[0].text;
+    while (ctx.q('[data-action="delete"]')) ctx.q('[data-action="delete"]').click();
+    assertEqual(listTexts(ctx), []);
+    ctx.app.importText(exported);
+    assertEqual(listTexts(ctx), ["하나", "둘"]);
+    assertEqual(savedTodos(storage), JSON.parse(exported).todos);
+  });
+});
