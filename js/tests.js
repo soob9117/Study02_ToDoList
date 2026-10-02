@@ -958,3 +958,50 @@ test("App 수정: 텍스트 더블클릭으로도 수정 모드에 들어간다(
     assertEqual(ctx.q('[data-role="edit-input"]').value, "보고서");
   });
 });
+
+// ============================================================
+// 테스트: App 이월·자정 처리
+// ============================================================
+test("App 이월: 버튼을 누르면 밀린 미완료가 오늘로 오고 N일째가 붙는다", () => {
+  const storage = storageWith(overdueFixture());
+  withApp({ storage }, (ctx) => {
+    const button = ctx.q('[data-role="carry-over"]');
+    assertEqual(button.textContent, "밀린 미완료 2개 가져오기");
+    button.click();
+    assertEqual(listTexts(ctx), ["오래된 일", "그제 일", "오늘 일"]);
+    assertEqual(ctx.q('[data-id="old1"] .todo-carry').textContent, "5일째");
+    assertEqual(ctx.q('[data-id="old2"] .todo-carry').textContent, "3일째");
+    const byId = {};
+    savedTodos(storage).forEach((t) => (byId[t.id] = t));
+    assertEqual([byId.old1.date, byId.old1.originalDate], ["2026-10-02", "2026-09-28"]);
+    assertEqual(byId.doneOld.date, "2026-09-30");
+    assertEqual(byId.future.date, "2026-10-05");
+    assertEqual(ctx.q('[data-role="carry-over"]').hidden, true);
+  });
+});
+
+test("App 이월: 오늘이 아닌 날짜에서는 버튼이 없다", () => {
+  withApp({ storage: storageWith(overdueFixture()) }, (ctx) => {
+    ctx.q('[data-action="prev-day"]').click();
+    assertEqual(ctx.q('[data-role="carry-over"]').hidden, true);
+  });
+});
+
+test("App 자정: 오늘을 보던 중 날짜가 바뀌면 창 포커스 시 새 오늘로 이동", () => {
+  withApp({}, (ctx) => {
+    ctx.setToday("2026-10-03");
+    window.dispatchEvent(new Event("focus"));
+    assertEqual(textOf(ctx, "date-label"), "2026-10-03 (토) · 오늘");
+  });
+});
+
+test("App 자정: 다른 날짜를 보던 중이면 그 날짜를 유지", () => {
+  withApp({}, (ctx) => {
+    ctx.q('[data-action="prev-day"]').click();
+    ctx.setToday("2026-10-03");
+    ctx.app.refreshToday();
+    assertEqual(textOf(ctx, "date-label"), "2026-10-01 (목)");
+    ctx.q('[data-action="go-today"]').click();
+    assertEqual(textOf(ctx, "date-label"), "2026-10-03 (토) · 오늘");
+  });
+});

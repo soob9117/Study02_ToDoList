@@ -195,6 +195,30 @@
       if (text) startEdit(idOf(text));
     });
 
+    // ----- 이월·자정 처리 -----
+    clickHandlers["carry-over"] = () => commit(Todos.carryOver(state.todos, state.today));
+
+    // 앱을 열어둔 채 자정이 지나도 창이 다시 활성화되면 "오늘"을 다시 계산한다.
+    function refreshToday() {
+      const nowToday = opts.today();
+      if (nowToday === state.today) return;
+      if (edit && !edit.finished) finishEdit(true);
+      if (state.viewDate === state.today) state.viewDate = nowToday;
+      state.today = nowToday;
+      update();
+    }
+    api.refreshToday = refreshToday;
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") refreshToday();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", refreshToday);
+    cleanups.push(() => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", refreshToday);
+    });
+
     // ----- 이벤트 연결 -----
     root.addEventListener("click", (event) => {
       const target = event.target.closest("[data-action]");
