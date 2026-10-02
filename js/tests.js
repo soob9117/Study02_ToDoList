@@ -459,3 +459,176 @@ test("Todos.carryDays: 이월된 항목만 N일째", () => {
   assertEqual(carryDays(makeTodo({ date: "2026-10-02", originalDate: "2026-09-30" })), 3);
   assertEqual(carryDays(makeTodo({ date: "2026-10-02", originalDate: "2026-10-02" })), 0);
 });
+
+// ============================================================
+// 테스트 도구: 화면
+// ============================================================
+function withRendered(stateOverrides, fn) {
+  const root = document.createElement("div");
+  document.getElementById("test-root").appendChild(root);
+  const state = Object.assign(
+    {
+      todos: [],
+      today: "2026-10-02",
+      viewDate: "2026-10-02",
+      filter: "all",
+      editingId: null,
+      notice: null,
+      saveFailed: false,
+      hasBackup: false,
+    },
+    stateOverrides
+  );
+  try {
+    TodoApp.Render.mount(root);
+    TodoApp.Render.render(root, state);
+    fn({
+      root,
+      q: (selector) => root.querySelector(selector),
+      qa: (selector) => Array.from(root.querySelectorAll(selector)),
+    });
+  } finally {
+    root.remove();
+  }
+}
+
+function textOf(ctx, role) {
+  return ctx.q('[data-role="' + role + '"]').textContent;
+}
+
+function listTexts(ctx) {
+  return ctx.qa('[data-role="list"] .todo-text').map((node) => node.textContent);
+}
+
+// ============================================================
+// 테스트: Render
+// ============================================================
+test("Render: 오늘이면 날짜·계산된 요일·오늘 표시", () => {
+  withRendered({}, (ctx) => assertEqual(textOf(ctx, "date-label"), "2026-10-02 (금) · 오늘"));
+});
+
+test("Render: 다른 날짜면 오늘 표시 없음", () => {
+  withRendered({ viewDate: "2026-10-01" }, (ctx) => assertEqual(textOf(ctx, "date-label"), "2026-10-01 (목)"));
+});
+
+test("Render: 진행률 텍스트·막대·카테고리별", () => {
+  const todos = [
+    makeTodo({ category: "work", done: true }),
+    makeTodo({ category: "work" }),
+    makeTodo({ category: "personal", done: true }),
+  ];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(textOf(ctx, "progress-text"), "진행률 2/3 (67%)");
+    assertEqual(ctx.q('[data-role="progress-fill"]').style.width, "67%");
+    assertEqual(textOf(ctx, "progress-categories"), "업무 1/2 · 개인 1/1 · 공부 0/0");
+  });
+});
+
+test("Render: 할 일이 없으면 진행률 0/0 (0%)", () => {
+  withRendered({}, (ctx) => {
+    assertEqual(textOf(ctx, "progress-text"), "진행률 0/0 (0%)");
+    assertEqual(ctx.q('[data-role="progress-fill"]').style.width, "0%");
+  });
+});
+
+test("Render: 목록은 미완료 먼저, 완료 항목은 done 클래스와 체크", () => {
+  const todos = [
+    makeTodo({ id: "a", text: "끝낸 일", done: true }),
+    makeTodo({ id: "b", text: "할 일 B" }),
+  ];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(listTexts(ctx), ["할 일 B", "끝낸 일"]);
+    assert(ctx.q('[data-id="a"]').classList.contains("done"), "done 클래스");
+    assertEqual(ctx.q('[data-id="a"] [data-action="toggle"]').checked, true);
+    assertEqual(ctx.q('[data-id="b"] [data-action="toggle"]').checked, false);
+  });
+});
+
+test("Render: 필터는 목록만 거르고 진행률은 그대로, 버튼 aria-pressed 표시", () => {
+  const todos = [
+    makeTodo({ text: "업무 일", category: "work" }),
+    makeTodo({ text: "공부 일", category: "study", done: true }),
+  ];
+  withRendered({ todos, filter: "study" }, (ctx) => {
+    assertEqual(listTexts(ctx), ["공부 일"]);
+    assertEqual(textOf(ctx, "progress-text"), "진행률 1/2 (50%)");
+    assertEqual(ctx.q('[data-filter="study"]').getAttribute("aria-pressed"), "true");
+    assertEqual(ctx.q('[data-filter="all"]').getAttribute("aria-pressed"), "false");
+  });
+});
+
+test("Render: 그 날짜에 할 일이 없을 때 안내", () => {
+  withRendered({}, (ctx) => {
+    assertEqual(ctx.q('[data-role="empty"]').hidden, false);
+    assertEqual(textOf(ctx, "empty"), "이 날짜에 할 일이 없습니다.");
+  });
+});
+
+test("Render: 필터 결과가 없을 때 안내, 항목이 보이면 안내 숨김", () => {
+  withRendered({ todos: [makeTodo({ category: "work" })], filter: "study" }, (ctx) => {
+    assertEqual(textOf(ctx, "empty"), "이 카테고리에 할 일이 없습니다.");
+  });
+  withRendered({ todos: [makeTodo({ category: "work" })] }, (ctx) => {
+    assertEqual(ctx.q('[data-role="empty"]').hidden, true);
+  });
+});
+
+test("Render: 이월 버튼은 오늘 화면 + 대상이 있을 때만", () => {
+  withRendered({ todos: overdueFixture() }, (ctx) => {
+    const button = ctx.q('[data-role="carry-over"]');
+    assertEqual(button.hidden, false);
+    assertEqual(button.textContent, "밀린 미완료 2개 가져오기");
+  });
+  withRendered({ todos: overdueFixture(), viewDate: "2026-10-01" }, (ctx) => {
+    assertEqual(ctx.q('[data-role="carry-over"]').hidden, true);
+  });
+  withRendered({ todos: [makeTodo()] }, (ctx) => {
+    assertEqual(ctx.q('[data-role="carry-over"]').hidden, true);
+  });
+});
+
+test("Render: 이월된 항목에만 N일째 표시", () => {
+  const todos = [
+    makeTodo({ id: "c", originalDate: "2026-09-30" }),
+    makeTodo({ id: "n" }),
+  ];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(ctx.q('[data-id="c"] .todo-carry').textContent, "3일째");
+    assertEqual(ctx.q('[data-id="n"] .todo-carry'), null);
+  });
+});
+
+test("Render: 수정 중인 항목은 입력란과 카테고리 선택으로 그린다", () => {
+  const todos = [makeTodo({ id: "a", text: "보고서", category: "personal" })];
+  withRendered({ todos, editingId: "a" }, (ctx) => {
+    const row = ctx.q('[data-id="a"]');
+    assert(row.classList.contains("editing"), "editing 클래스");
+    assertEqual(row.querySelector('[data-role="edit-input"]').value, "보고서");
+    assertEqual(row.querySelector('[data-role="edit-category"]').value, "personal");
+    assertEqual(row.querySelector(".todo-text"), null);
+  });
+});
+
+test("Render: 백업 복원 버튼은 백업이 있을 때만", () => {
+  withRendered({ hasBackup: false }, (ctx) => assertEqual(ctx.q('[data-role="restore-backup"]').hidden, true));
+  withRendered({ hasBackup: true }, (ctx) => assertEqual(ctx.q('[data-role="restore-backup"]').hidden, false));
+});
+
+test("Render: 안내·저장 실패 메시지", () => {
+  withRendered({}, (ctx) => assertEqual(ctx.q('[data-role="messages"]').hidden, true));
+  withRendered({ notice: "안내 문구", saveFailed: true }, (ctx) => {
+    assertEqual(ctx.q('[data-role="messages"]').hidden, false);
+    assertEqual(
+      ctx.qa('[data-role="messages"] .message').map((n) => n.textContent),
+      ["안내 문구", "저장에 실패했습니다. 새로고침하면 변경 내용이 사라질 수 있습니다."]
+    );
+  });
+});
+
+test("Render: 사용자 텍스트는 HTML로 해석하지 않는다", () => {
+  const evil = '<img src=x onerror="window.__xss=1">';
+  withRendered({ todos: [makeTodo({ id: "x", text: evil })] }, (ctx) => {
+    assertEqual(listTexts(ctx), [evil]);
+    assertEqual(ctx.q('[data-id="x"] img'), null);
+  });
+});
