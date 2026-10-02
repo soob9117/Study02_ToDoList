@@ -100,3 +100,107 @@ test("Dates.weekdayLabel: 날짜에서 요일을 계산한다", () => {
   assertEqual(weekdayLabel("2026-10-01"), "목");
   assertEqual(weekdayLabel("2028-02-29"), "화");
 });
+
+// ============================================================
+// 테스트 도구: 할 일 데이터
+// ============================================================
+let todoSeq = 0;
+
+function makeTodo(overrides) {
+  todoSeq++;
+  return Object.assign(
+    {
+      id: "t_test_" + todoSeq,
+      text: "할 일 " + todoSeq,
+      category: "work",
+      done: false,
+      date: "2026-10-02",
+      originalDate: "2026-10-02",
+      createdAt: 1000 + todoSeq,
+    },
+    overrides
+  );
+}
+
+// ============================================================
+// 테스트: Storage 형식 검증
+// ============================================================
+function expectItemError(overrides, message) {
+  const data = { version: 1, todos: [makeTodo(), makeTodo(overrides)] };
+  assertEqual(TodoApp.Storage.validateData(data), { ok: false, error: "2번째 항목: " + message });
+}
+
+test("Storage.validateData: 정상 데이터와 빈 목록을 통과시킨다", () => {
+  const { validateData } = TodoApp.Storage;
+  assertEqual(validateData({ version: 1, todos: [makeTodo(), makeTodo({ done: true })] }), { ok: true });
+  assertEqual(validateData({ version: 1, todos: [] }), { ok: true });
+});
+
+test("Storage.validateData: 최상위·version·todos 오류", () => {
+  const { validateData } = TodoApp.Storage;
+  assertEqual(validateData(null), { ok: false, error: "최상위 형식이 잘못되었습니다." });
+  assertEqual(validateData([]), { ok: false, error: "최상위 형식이 잘못되었습니다." });
+  assertEqual(validateData({ version: 2, todos: [] }), { ok: false, error: "지원하지 않는 version입니다." });
+  assertEqual(validateData({ version: 1, todos: {} }), { ok: false, error: "todos가 배열이 아닙니다." });
+});
+
+test("Storage.validateData: 항목이 객체가 아니면 거부", () => {
+  assertEqual(TodoApp.Storage.validateData({ version: 1, todos: [null] }), {
+    ok: false,
+    error: "1번째 항목: 객체가 아닙니다.",
+  });
+});
+
+test("Storage.validateData: id 오류", () => {
+  expectItemError({ id: "" }, "id 값이 잘못되었습니다.");
+  expectItemError({ id: 7 }, "id 값이 잘못되었습니다.");
+});
+
+test("Storage.validateData: id 중복", () => {
+  const data = { version: 1, todos: [makeTodo({ id: "same" }), makeTodo({ id: "same" })] };
+  assertEqual(TodoApp.Storage.validateData(data), { ok: false, error: "2번째 항목: id가 중복되었습니다." });
+});
+
+test("Storage.validateData: text는 공백 제거 후 1~100자", () => {
+  expectItemError({ text: "   " }, "text 값이 잘못되었습니다.");
+  expectItemError({ text: "가".repeat(101) }, "text 값이 잘못되었습니다.");
+  expectItemError({ text: 3 }, "text 값이 잘못되었습니다.");
+  const ok = { version: 1, todos: [makeTodo({ text: "가".repeat(100) })] };
+  assertEqual(TodoApp.Storage.validateData(ok), { ok: true });
+});
+
+test("Storage.validateData: category 오류", () => {
+  expectItemError({ category: "etc" }, "category 값이 잘못되었습니다.");
+});
+
+test("Storage.validateData: done은 불리언", () => {
+  expectItemError({ done: "false" }, "done 값이 잘못되었습니다.");
+});
+
+test("Storage.validateData: date 형식·존재 여부", () => {
+  expectItemError({ date: "2026-1-5" }, "date 값이 잘못되었습니다.");
+  expectItemError({ date: "2026-10-32", originalDate: "2026-10-01" }, "date 값이 잘못되었습니다.");
+});
+
+test("Storage.validateData: originalDate 형식·존재 여부", () => {
+  expectItemError({ originalDate: "2026-02-30" }, "originalDate 값이 잘못되었습니다.");
+});
+
+test("Storage.validateData: originalDate가 date보다 늦으면 거부", () => {
+  expectItemError({ date: "2026-10-02", originalDate: "2026-10-03" }, "originalDate가 date보다 늦습니다.");
+});
+
+test("Storage.validateData: createdAt은 유한한 숫자", () => {
+  expectItemError({ createdAt: "1" }, "createdAt 값이 잘못되었습니다.");
+  expectItemError({ createdAt: NaN }, "createdAt 값이 잘못되었습니다.");
+});
+
+test("Storage.parseAndValidate: JSON이 아니면 거부", () => {
+  assertEqual(TodoApp.Storage.parseAndValidate("{broken"), { ok: false, error: "JSON 형식이 아닙니다." });
+});
+
+test("Storage.parseAndValidate: 정상 JSON이면 data를 돌려준다", () => {
+  const data = { version: 1, todos: [makeTodo({ id: "a" })] };
+  const result = TodoApp.Storage.parseAndValidate(JSON.stringify(data));
+  assertEqual(result, { ok: true, data });
+});
