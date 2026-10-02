@@ -39,7 +39,7 @@
       <section class="progress" aria-label="진행률">
         <p class="progress-text" data-role="progress-text"></p>
         <div class="progress-bar"><div class="progress-fill" data-role="progress-fill"></div></div>
-        <p class="progress-categories" data-role="progress-categories"></p>
+        <div class="progress-categories" data-role="progress-categories" hidden></div>
       </section>
       <button type="button" class="carry-btn" data-action="carry-over" data-role="carry-over" hidden></button>
       <div class="add-row">
@@ -121,9 +121,33 @@
     const p = Todos.progress(state.todos, state.viewDate);
     part(root, "progress-text").textContent = `진행률 ${p.done}/${p.total} (${p.percent}%)`;
     part(root, "progress-fill").style.width = p.percent + "%";
-    part(root, "progress-categories").textContent = Storage.CATEGORIES.map(
-      (c) => `${Todos.CATEGORY_LABELS[c]} ${p.byCategory[c].done}/${p.byCategory[c].total}`
-    ).join(" · ");
+    renderCategoryGauges(part(root, "progress-categories"), p.byCategory);
+  }
+
+  // 그 날짜에 할 일이 있는 카테고리만 "이름 | 숫자 | 게이지" 한 줄씩 그린다.
+  function renderCategoryGauges(box, byCategory) {
+    box.textContent = "";
+    const shown = Storage.CATEGORIES.filter((c) => byCategory[c].total > 0);
+    shown.forEach((c) => {
+      const stat = byCategory[c];
+      const label = Todos.CATEGORY_LABELS[c];
+      const row = el("div", "cat-progress");
+      row.dataset.category = c;
+
+      const bar = el("div", "cat-progress-bar");
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      bar.setAttribute("aria-valuenow", String(stat.percent));
+      bar.setAttribute("aria-label", label + " 진행률");
+      const fill = el("div", "cat-progress-fill badge-" + c);
+      fill.style.width = stat.percent + "%";
+      bar.appendChild(fill);
+
+      row.append(el("span", "cat-progress-label", label), el("span", "cat-progress-count", `${stat.done}/${stat.total}`), bar);
+      box.appendChild(row);
+    });
+    box.hidden = shown.length === 0;
   }
 
   function renderCarryOver(root, state) {

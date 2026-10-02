@@ -109,16 +109,21 @@
     return todos.filter((todo) => todo.done).length;
   }
 
+  // { done, total, percent } — 전체가 0이면 percent 0 (NaN 금지)
+  function summarize(items) {
+    const done = countDone(items);
+    const total = items.length;
+    return { done, total, percent: total === 0 ? 0 : Math.round((done / total) * 100) };
+  }
+
+  // 항상 dateStr 날짜의 할 일만으로 계산한다(다른 날짜·필터와 무관).
   function progress(todos, dateStr) {
     const list = todosForDate(todos, dateStr);
     const byCategory = {};
     CATEGORIES.forEach((category) => {
-      const items = list.filter((todo) => todo.category === category);
-      byCategory[category] = { done: countDone(items), total: items.length };
+      byCategory[category] = summarize(list.filter((todo) => todo.category === category));
     });
-    const done = countDone(list);
-    const total = list.length;
-    return { done, total, percent: total === 0 ? 0 : Math.round((done / total) * 100), byCategory };
+    return Object.assign(summarize(list), { byCategory });
   }
 
   window.TodoApp.Todos = {

@@ -138,9 +138,39 @@ select:focus-visible {
   margin: 0;
 }
 
+/* 카테고리별 게이지: 이름 | 숫자 | 게이지 3열. 게이지 열은 좁은 폭에서 줄어든다 */
 .progress-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.cat-progress {
+  display: grid;
+  grid-template-columns: 2.5em 3.5em minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.cat-progress-count {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cat-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.cat-progress-fill {
+  width: 0;
+  height: 100%;
+  transition: width 0.2s;
 }
 
 .progress-bar {

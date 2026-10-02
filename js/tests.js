@@ -441,7 +441,11 @@ test("Todos.progress: 전체와 카테고리별 완료/전체", () => {
     done: 2,
     total: 3,
     percent: 67,
-    byCategory: { work: { done: 1, total: 2 }, personal: { done: 1, total: 1 }, study: { done: 0, total: 0 } },
+    byCategory: {
+      work: { done: 1, total: 2, percent: 50 },
+      personal: { done: 1, total: 1, percent: 100 },
+      study: { done: 0, total: 0, percent: 0 },
+    },
   });
 });
 
@@ -450,7 +454,11 @@ test("Todos.progress: 할 일이 없으면 0% (NaN 아님)", () => {
     done: 0,
     total: 0,
     percent: 0,
-    byCategory: { work: { done: 0, total: 0 }, personal: { done: 0, total: 0 }, study: { done: 0, total: 0 } },
+    byCategory: {
+      work: { done: 0, total: 0, percent: 0 },
+      personal: { done: 0, total: 0, percent: 0 },
+      study: { done: 0, total: 0, percent: 0 },
+    },
   });
 });
 
@@ -520,7 +528,10 @@ test("Render: 진행률 텍스트·막대·카테고리별", () => {
   withRendered({ todos }, (ctx) => {
     assertEqual(textOf(ctx, "progress-text"), "진행률 2/3 (67%)");
     assertEqual(ctx.q('[data-role="progress-fill"]').style.width, "67%");
-    assertEqual(textOf(ctx, "progress-categories"), "업무 1/2 · 개인 1/1 · 공부 0/0");
+    assertEqual(categoryRows(ctx), [
+      { category: "work", label: "업무", count: "1/2", width: "50%", now: "50" },
+      { category: "personal", label: "개인", count: "1/1", width: "100%", now: "100" },
+    ]);
   });
 });
 
@@ -1238,5 +1249,88 @@ test("최종 F4: 가져오기로 데이터가 바뀌면 열려 있던 수정 세
     focusOut(input);
     assertEqual(storage.writes.length, after);
     assertEqual(savedTodos(storage).map((t) => t.text), ["가져옴"]);
+  });
+});
+
+// ============================================================
+// 테스트 도구: 카테고리 게이지
+// ============================================================
+function categoryRows(ctx) {
+  return ctx.qa('[data-role="progress-categories"] .cat-progress').map((row) => {
+    const bar = row.querySelector(".cat-progress-bar");
+    return {
+      category: row.dataset.category,
+      label: row.querySelector(".cat-progress-label").textContent,
+      count: row.querySelector(".cat-progress-count").textContent,
+      width: row.querySelector(".cat-progress-fill").style.width,
+      now: bar.getAttribute("aria-valuenow"),
+    };
+  });
+}
+
+// ============================================================
+// 테스트: 카테고리 게이지
+// ============================================================
+test("Render 게이지: 할 일이 있는 카테고리만 업무→개인→공부 순서로 한 줄씩", () => {
+  const todos = [
+    makeTodo({ category: "study", done: true }),
+    makeTodo({ category: "work" }),
+    makeTodo({ category: "study" }),
+    makeTodo({ category: "study" }),
+  ];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(categoryRows(ctx), [
+      { category: "work", label: "업무", count: "0/1", width: "0%", now: "0" },
+      { category: "study", label: "공부", count: "1/3", width: "33%", now: "33" },
+    ]);
+    const bar = ctx.q('[data-category="study"] .cat-progress-bar');
+    assertEqual(
+      [bar.getAttribute("role"), bar.getAttribute("aria-valuemin"), bar.getAttribute("aria-valuemax"), bar.getAttribute("aria-label")],
+      ["progressbar", "0", "100", "공부 진행률"]
+    );
+    assertEqual(ctx.q('[data-role="progress-categories"]').hidden, false);
+  });
+});
+
+test("Render 게이지: 그 날짜에 할 일이 없으면 카테고리 영역을 숨긴다", () => {
+  const todos = [makeTodo({ date: "2026-10-01", originalDate: "2026-10-01" })];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(categoryRows(ctx), []);
+    assertEqual(ctx.q('[data-role="progress-categories"]').hidden, true);
+  });
+});
+
+test("Render 게이지: 다른 날짜의 할 일은 섞이지 않는다", () => {
+  const todos = [
+    makeTodo({ category: "work", done: true }),
+    makeTodo({ category: "work", date: "2026-10-01", originalDate: "2026-10-01" }),
+    makeTodo({ category: "personal", done: true, date: "2026-10-03", originalDate: "2026-10-03" }),
+  ];
+  withRendered({ todos }, (ctx) => {
+    assertEqual(textOf(ctx, "progress-text"), "진행률 1/1 (100%)");
+    assertEqual(categoryRows(ctx), [{ category: "work", label: "업무", count: "1/1", width: "100%", now: "100" }]);
+  });
+});
+
+test("Render 게이지: 필터를 바꿔도 카테고리 줄과 게이지는 그대로", () => {
+  const todos = [makeTodo({ category: "work", done: true }), makeTodo({ category: "personal" })];
+  const expected = [
+    { category: "work", label: "업무", count: "1/1", width: "100%", now: "100" },
+    { category: "personal", label: "개인", count: "0/1", width: "0%", now: "0" },
+  ];
+  withRendered({ todos, filter: "study" }, (ctx) => assertEqual(categoryRows(ctx), expected));
+  withRendered({ todos, filter: "work" }, (ctx) => assertEqual(categoryRows(ctx), expected));
+});
+
+test("App 게이지: 추가하면 줄이 바로 생기고, 완료하면 갱신되고, 삭제하면 바로 사라진다", () => {
+  withApp({ storage: storageWith([makeTodo({ id: "w", category: "work" })]) }, (ctx) => {
+    assertEqual(categoryRows(ctx).map((r) => r.category), ["work"]);
+    addViaUi(ctx, "단어 외우기", "study");
+    assertEqual(categoryRows(ctx).map((r) => [r.category, r.count]), [["work", "0/1"], ["study", "0/1"]]);
+    const studyId = savedTodos(ctx.storage).find((t) => t.category === "study").id;
+    ctx.q('[data-id="' + studyId + '"] [data-action="toggle"]').click();
+    assertEqual(categoryRows(ctx)[1], { category: "study", label: "공부", count: "1/1", width: "100%", now: "100" });
+    ctx.q('[data-id="' + studyId + '"] [data-action="delete"]').click();
+    assertEqual(categoryRows(ctx).map((r) => r.category), ["work"]);
   });
 });

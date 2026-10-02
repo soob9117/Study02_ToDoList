@@ -13,8 +13,8 @@
 | 1 | 테스트 도구, 날짜 유틸, 저장소(검증·읽기쓰기·백업) | 1–3 | 약 32개 |
 | 2 | 할 일 로직(추가·수정·삭제·완료·정렬·이월·진행률) | 4–5 | 약 46개 |
 | 3 | 화면 그리기와 앱 기본 동작 | 6–7 | 약 74개 |
-| 4 | 수정 모드, 이월 버튼·자정 처리, 내보내기·가져오기·백업 복원, 다른 탭 감지 | 8–10 + 최종 리뷰 수정 | 약 103개 |
-| 5 | `index.html`, `style.css`, 모바일 대응, 최종 점검, README | 11–12 | 약 103개 |
+| 4 | 수정 모드, 이월 버튼·자정 처리, 내보내기·가져오기·백업 복원, 다른 탭 감지 | 8–10 + 최종 리뷰 수정 | 약 103개(게이지 테스트 포함 시 약 108개) |
+| 5 | `index.html`, `style.css`, 모바일 대응, 최종 점검, README | 11–12 | 약 108개 |
 
 테스트 개수는 원래 구현 기준의 참고값입니다. 완료 기준은 각 단계에 적힌 **테스트 항목이 모두 있고 전부 통과하는 것**입니다.
 
@@ -113,7 +113,7 @@
    - overdueTodos(todos, today): done이 false이고 date < today인 모든 항목. 중간에 기록이 없는 날이 있어도 빠지지 않는다.
    - carryOver(todos, today): 대상의 date만 today로 바꾸고 originalDate는 유지한다(이동 방식).
    - carryDays(todo): date === originalDate면 0, 아니면 diffDays(originalDate, date) + 1 ("N일째" 표시용)
-7. progress(todos, dateStr) → { done, total, percent, byCategory: { work: {done,total}, personal: {...}, study: {...} } }. percent는 Math.round(완료/전체×100)이고, 전체가 0이면 0(NaN 금지).
+7. progress(todos, dateStr) → { done, total, percent, byCategory: { work: {done,total,percent}, personal: {...}, study: {...} } }. 항상 dateStr 날짜의 할 일만으로 계산한다. percent는 Math.round(완료/전체×100)이고, 전체가 0이면 0(NaN 금지). 카테고리별 percent도 같은 규칙이다.
 
 ## 완료 기준 (통과해야 할 테스트)
 - createTodo: 공백 제거와 필드 값, 빈 값·공백만·101자·잘못된 카테고리 거부, 100자 허용
@@ -121,7 +121,7 @@
 - updateTodo: 텍스트(공백 제거)와 카테고리 변경, 잘못된 값이면 같은 배열(===) 반환
 - todosForDate, sortTodos(원본 순서 유지)
 - 이월 픽스처(오늘 2026-10-02): 09-28 미완료, 09-30 미완료, 09-30 완료, 10-02 미완료, 10-05 미완료 → overdueTodos는 앞의 두 개만, carryOver 후 date는 10-02이고 originalDate는 그대로, 완료·미래 항목은 그대로. 이 픽스처는 overdueFixture()로 tests.js에 두어 이후 단계에서도 쓴다.
-- progress: 업무 1/2 · 개인 1/1 · 공부 0/0 → 2/3 (67%), 할 일이 없으면 0/0 (0%)
+- progress: 업무 1/2(50%) · 개인 1/1(100%) · 공부 0/0(0%) → 전체 2/3 (67%), 다른 날짜의 할 일은 제외, 할 일이 없으면 0/0 (0%)
 - carryDays: originalDate 09-30, date 10-02 → 3, 이월되지 않은 항목은 0
 - 테스트 실행(Git Bash, 프로젝트 폴더에서):
   "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run --user-data-dir="$LOCALAPPDATA/todo-test-chrome" --dump-dom "file:///$(pwd -W | sed 's/ /%20/g')/tests.html" 2>/dev/null | grep -oE 'id="summary">[^<]*|class="fail">[^<]*'
@@ -164,7 +164,8 @@
    - 항목은 <li class="todo-item" data-id>(완료 시 done, 수정 중 editing 클래스), 텍스트 .todo-text, 이월 표시 .todo-carry
 3. Render
    - 헤더 "2026-10-02 (금) · 오늘"(다른 날짜면 "· 오늘" 없음)
-   - 진행률 "진행률 2/3 (67%)", 막대 width "67%", "업무 1/2 · 개인 1/1 · 공부 0/0"
+   - 진행률 "진행률 2/3 (67%)", 막대 width "67%"
+   - 카테고리별 게이지: 전체 게이지 아래 progress-categories 영역에 그날 할 일이 있는 카테고리만 업무→개인→공부 순서로 한 줄씩(.cat-progress[data-category]) "이름(.cat-progress-label) + 완료/전체(.cat-progress-count) + 게이지(.cat-progress-bar, role=\"progressbar\", aria-valuemin 0, aria-valuemax 100, aria-valuenow, aria-label \"업무 진행률\")"를 그린다. 막대(.cat-progress-fill) 색은 배지 색과 같다. 할 일이 0개인 카테고리는 줄을 그리지 않고, 그날 할 일이 없으면 영역을 숨긴다. 게이지는 필터와 무관하게 그 날짜 전체 기준이다.
    - 이월 버튼 "밀린 미완료 N개 가져오기"(오늘 화면이고 대상이 있을 때만)
    - 필터 버튼 aria-pressed. 필터는 목록만 거르고 진행률은 그 날짜 전체 기준이다.
    - 빈 상태 "이 날짜에 할 일이 없습니다." / "이 카테고리에 할 일이 없습니다."
@@ -181,7 +182,8 @@
    - 상태가 바뀔 때마다 즉시 저장한다. 저장에 실패하면 saveFailed 경고를 띄우고, 다음 저장에 성공하면 지운다.
 
 ## 완료 기준 (통과해야 할 테스트)
-- Render: 헤더(금/목, 오늘 표시), 진행률(67%, 0/0 (0%)), 정렬과 done 표시, 필터(목록만 거름, 진행률 불변, aria-pressed), 빈 상태 두 가지, 이월 버튼 표시 조건, N일째, 수정 중 행, 백업 버튼, 메시지, XSS(<img src=x onerror=...>가 문자 그대로 보이고 img 요소가 생기지 않음)
+- Render: 헤더(금/목, 오늘 표시), 진행률(67%, 0/0 (0%)), 카테고리 게이지(할 일 있는 카테고리만·순서·숫자·width·aria, 0개면 영역 숨김, 다른 날짜 제외, 필터 무관), 정렬과 done 표시, 필터(목록만 거름, 진행률 불변, aria-pressed), 빈 상태 두 가지, 이월 버튼 표시 조건, N일째, 수정 중 행, 백업 버튼, 메시지, XSS(<img src=x onerror=...>가 문자 그대로 보이고 img 요소가 생기지 않음)
+- App 게이지: 공부 할 일 추가 → 공부 줄 즉시 표시, 완료 토글 → 게이지 갱신, 삭제 → 줄 즉시 사라짐
 - App(테스트 도우미 withApp으로 숨겨진 #test-root에 띄우고, 오늘을 "2026-10-02"로 고정): 시작 화면, Enter 추가와 저장, 다시 열어도 유지, 버튼 추가, 빈 값 거부, isComposing:true인 Enter 무시 후 일반 Enter로 1개만 추가, 카테고리 유지, 토글 저장, 삭제 승인과 거부, 날짜 이동과 다른 날짜 추가, 필터, 깨진 데이터 안내와 백업 버튼, 저장 실패 경고와 해제, 저장소 접근 불가 안내
 - 테스트 실행(Git Bash, 프로젝트 폴더에서):
   "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --no-first-run --user-data-dir="$LOCALAPPDATA/todo-test-chrome" --dump-dom "file:///$(pwd -W | sed 's/ /%20/g')/tests.html" 2>/dev/null | grep -oE 'id="summary">[^<]*|class="fail">[^<]*'
@@ -276,7 +278,7 @@
 2. 터치 대상(체크박스와 라벨 영역, ✎, 🗑, ◀/▶, [오늘], 필터·추가·이월 버튼)은 최소 44×44px로 한다.
 3. button, input, select의 font-size는 16px 이상으로 한다(iOS 포커스 시 자동 확대 방지).
 4. 추가 줄은 flex-wrap으로 만든다. 480px 이하에서는 입력란이 한 줄 전체를 쓰고, 카테고리와 [추가]가 다음 줄로 내려간다.
-5. 긴 텍스트는 overflow-wrap: anywhere로 줄바꿈한다. 날짜 헤더는 word-break: keep-all로 "오/늘"처럼 끊기지 않게 한다.
+5. 카테고리 게이지 줄은 "이름 | 숫자 | 게이지" 3열 그리드(이름·숫자 고정 폭, 숫자는 tabular-nums, 게이지 열은 minmax(0, 1fr))로 360px에서도 한 줄이 넘치지 않게 한다. 긴 텍스트는 overflow-wrap: anywhere로 줄바꿈한다. 날짜 헤더는 word-break: keep-all로 "오/늘"처럼 끊기지 않게 한다.
 6. 완료 항목은 취소선과 흐린 색, 카테고리 배지는 색과 글자로 구분, "N일째"는 강조색, 메시지와 이월 버튼은 경고색으로 한다.
 7. 최종 점검
    - grep으로 toISOString 사용(주석 제외), import/export 문, type="module", 외부 URL이 없는지 확인한다.
@@ -289,6 +291,7 @@
    - 360px(DevTools 기기 모드)에서 가로 스크롤 없음, 줄바꿈된 입력 줄로 추가 가능, ✎만으로 수정 가능, 44px·16px
    - 새로고침 후 유지, 내보내기 → 전부 삭제 → 가져오기 복원, 가져오기 직후 [백업 복원]
    - 탭 두 개에서 한쪽 변경이 다른 탭에 안내와 함께 반영되는가
+   - 카테고리 게이지가 할 일 있는 카테고리만 보이고 추가·삭제·완료 시 바로 바뀌며, 360px에서도 깨지지 않는가
 9. README.md: 프로젝트 소개, 주요 기능, 실행 방법(index.html 더블클릭), 테스트 방법(tests.html 더블클릭 + 헤드리스 명령), 폴더 구조, PRD 문서 링크. 수동 체크리스트가 모두 통과하면 상태를 "완성"으로 적고 실제 테스트 개수를 넣는다.
 
 ## 완료 기준 (통과해야 할 테스트)
