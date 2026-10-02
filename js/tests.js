@@ -397,3 +397,65 @@ test("Todos.sortTodos: 미완료 먼저, 그 안에서 생성 순", () => {
   assertEqual(TodoApp.Todos.sortTodos(todos).map((t) => t.id), ["u1", "u2", "d2", "d1"]);
   assertEqual(todos[0].id, "d1", "원본 순서 유지");
 });
+
+// ============================================================
+// 테스트 도구: 이월 상황 데이터 (오늘 = 2026-10-02)
+// ============================================================
+function overdueFixture() {
+  return [
+    makeTodo({ id: "old1", text: "오래된 일", date: "2026-09-28", originalDate: "2026-09-28" }),
+    makeTodo({ id: "old2", text: "그제 일", date: "2026-09-30", originalDate: "2026-09-30" }),
+    makeTodo({ id: "doneOld", text: "끝낸 일", date: "2026-09-30", originalDate: "2026-09-30", done: true }),
+    makeTodo({ id: "today1", text: "오늘 일", date: "2026-10-02", originalDate: "2026-10-02" }),
+    makeTodo({ id: "future", text: "미래 일", date: "2026-10-05", originalDate: "2026-10-05" }),
+  ];
+}
+
+// ============================================================
+// 테스트: Todos 이월·진행률
+// ============================================================
+test("Todos.overdueTodos: 오늘 이전의 모든 미완료(중간에 빈 날 포함)", () => {
+  assertEqual(TodoApp.Todos.overdueTodos(overdueFixture(), "2026-10-02").map((t) => t.id), ["old1", "old2"]);
+});
+
+test("Todos.carryOver: date만 오늘로 옮기고 originalDate는 유지", () => {
+  const original = overdueFixture();
+  const next = TodoApp.Todos.carryOver(original, "2026-10-02");
+  const byId = {};
+  next.forEach((t) => (byId[t.id] = t));
+  assertEqual([byId.old1.date, byId.old1.originalDate], ["2026-10-02", "2026-09-28"]);
+  assertEqual([byId.old2.date, byId.old2.originalDate], ["2026-10-02", "2026-09-30"]);
+  assertEqual(byId.doneOld.date, "2026-09-30", "완료 항목 제외");
+  assertEqual(byId.future.date, "2026-10-05", "미래 항목 제외");
+  assertEqual(original[0].date, "2026-09-28", "원본 불변");
+});
+
+test("Todos.progress: 전체와 카테고리별 완료/전체", () => {
+  const todos = [
+    makeTodo({ category: "work", done: true }),
+    makeTodo({ category: "work", done: false }),
+    makeTodo({ category: "personal", done: true }),
+    makeTodo({ category: "study", done: true, date: "2026-10-01", originalDate: "2026-10-01" }),
+  ];
+  assertEqual(TodoApp.Todos.progress(todos, "2026-10-02"), {
+    done: 2,
+    total: 3,
+    percent: 67,
+    byCategory: { work: { done: 1, total: 2 }, personal: { done: 1, total: 1 }, study: { done: 0, total: 0 } },
+  });
+});
+
+test("Todos.progress: 할 일이 없으면 0% (NaN 아님)", () => {
+  assertEqual(TodoApp.Todos.progress([], "2026-10-02"), {
+    done: 0,
+    total: 0,
+    percent: 0,
+    byCategory: { work: { done: 0, total: 0 }, personal: { done: 0, total: 0 }, study: { done: 0, total: 0 } },
+  });
+});
+
+test("Todos.carryDays: 이월된 항목만 N일째", () => {
+  const { carryDays } = TodoApp.Todos;
+  assertEqual(carryDays(makeTodo({ date: "2026-10-02", originalDate: "2026-09-30" })), 3);
+  assertEqual(carryDays(makeTodo({ date: "2026-10-02", originalDate: "2026-10-02" })), 0);
+});

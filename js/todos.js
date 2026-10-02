@@ -2,6 +2,7 @@
   "use strict";
 
   const { CATEGORIES, MAX_TEXT_LENGTH } = window.TodoApp.Storage;
+  const Dates = window.TodoApp.Dates;
 
   // ============================================================
   // 상수
@@ -80,6 +81,46 @@
     return todos.slice().sort((a, b) => Number(a.done) - Number(b.done) || a.createdAt - b.createdAt);
   }
 
+  // ============================================================
+  // 이월
+  // ============================================================
+  function isOverdue(todo, today) {
+    return !todo.done && todo.date < today;
+  }
+
+  function overdueTodos(todos, today) {
+    return todos.filter((todo) => isOverdue(todo, today));
+  }
+
+  function carryOver(todos, today) {
+    return todos.map((todo) => (isOverdue(todo, today) ? Object.assign({}, todo, { date: today }) : todo));
+  }
+
+  // 이월되지 않았으면 0, 이월됐으면 처음 등록일부터 센 "N일째"
+  function carryDays(todo) {
+    if (todo.date === todo.originalDate) return 0;
+    return Dates.diffDays(todo.originalDate, todo.date) + 1;
+  }
+
+  // ============================================================
+  // 진행률
+  // ============================================================
+  function countDone(todos) {
+    return todos.filter((todo) => todo.done).length;
+  }
+
+  function progress(todos, dateStr) {
+    const list = todosForDate(todos, dateStr);
+    const byCategory = {};
+    CATEGORIES.forEach((category) => {
+      const items = list.filter((todo) => todo.category === category);
+      byCategory[category] = { done: countDone(items), total: items.length };
+    });
+    const done = countDone(list);
+    const total = list.length;
+    return { done, total, percent: total === 0 ? 0 : Math.round((done / total) * 100), byCategory };
+  }
+
   window.TodoApp.Todos = {
     CATEGORY_LABELS,
     createTodo,
@@ -89,5 +130,9 @@
     toggleTodo,
     todosForDate,
     sortTodos,
+    overdueTodos,
+    carryOver,
+    carryDays,
+    progress,
   };
 })();
